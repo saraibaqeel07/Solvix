@@ -2,6 +2,26 @@ import Logo from './Logo';
 import { useState } from 'react';
 import { useMediaQuery } from 'react-responsive';
 import Sidebar from './Sidebar';
+import { useAuth } from '../contexts/AuthContext';
+import { tenantAccess, daysLeftText } from '../lib/tenants';
+import { fmtDate } from '../lib/dates';
+
+// Shown to tenants on a demo, or whose paid period ends within a few days.
+function AccessBanner() {
+  const { userProfile } = useAuth();
+  if (!userProfile || userProfile.role === 'ceo') return null;
+  const a = tenantAccess(userProfile);
+  if (a.locked || !a.until || !(a.state === 'demo' || a.endingSoon)) return null;
+  const demo = a.state === 'demo';
+  return (
+    <div className={`mb-5 flex flex-wrap items-center gap-2 rounded-2xl px-4 py-3 text-sm ring-1 ${a.endingSoon ? 'bg-blush-50 ring-blush-100 text-blush-800' : 'bg-powder-50 ring-powder-100 text-powder-800'}`}>
+      <span className="text-base">{demo ? '🧪' : '⏳'}</span>
+      <span className="font-semibold">{demo ? 'Demo access' : 'Subscription ending'}</span>
+      <span>· {daysLeftText(a)} (until {fmtDate(a.until)})</span>
+      <span className="opacity-75">— contact the Slotify administrator to {demo ? 'subscribe' : 'renew'}.</span>
+    </div>
+  );
+}
 
 export default function Layout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -22,7 +42,7 @@ export default function Layout({ children }) {
             <Logo size={30} />
           </header>
         )}
-        <main className="flex-1 p-6 md:p-8 overflow-y-auto">{children}</main>
+        <main className="flex-1 p-6 md:p-8 overflow-y-auto"><AccessBanner />{children}</main>
       </div>
     </div>
   );

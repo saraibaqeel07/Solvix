@@ -36,8 +36,16 @@ export function AuthProvider({ children }) {
   const login = (email, password) => signInWithEmailAndPassword(auth, email, password);
   const logout = () => signOut(auth);
 
+  // Re-reads the tenant doc (e.g. after the CEO extends a demo or records a payment).
+  const refreshProfile = async () => {
+    const u = auth.currentUser;
+    if (!u || u.email === CEO_EMAIL) return;
+    const snap = await getDoc(doc(db, 'tenants', u.uid));
+    if (snap.exists()) setUserProfile({ ...snap.data(), uid: u.uid });
+  };
+
   return (
-    <AuthContext.Provider value={{ user, userProfile, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, userProfile, loading, login, logout, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );
