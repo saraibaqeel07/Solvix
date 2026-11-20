@@ -1,197 +1,272 @@
-import { useEffect, useState } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../../config/firebase';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
+import {
+  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid,
+} from 'recharts';
 import { useAuth } from '../../contexts/AuthContext';
-import { Link } from 'react-router-dom';
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { StatCardSkeleton, ChartSkeleton } from '../../components/Skeleton';
+import { StatTile, ChartTooltip, EmptyState } from '../../components/ui';
+import { fmtDate, inRange, lastMonths, monthKey, monthLabel, rangeFor, todayISO } from '../../lib/dates';
+import { loadGymData, memberState, memberDues, fmtPKR, num, PAY_KINDS, payKind, groupPayments, STATE_META } from '../../lib/gym';
 
-const CustomTooltip = ({ active, payload, label }) => {
-  if (active && payload?.length) {
-    return (
-      <div className="bg-slate-900 text-white px-3 py-2 rounded-xl text-xs shadow-xl">
-        <p className="font-semibold">{label || payload[0].name}</p>
-        <p className="text-slate-300">{payload[0].name === 'Revenue' || payload[0].name === 'revenue'
-          ? `PKR ${Number(payload[0].value).toLocaleString()}`
-          : `${payload[0].value} member${payload[0].value !== 1 ? 's' : ''}`}
-        </p>
-      </div>
-    );
-  }
-  return null;
-};
+const PIE = ['#ab9cf3', '#6cc9a0', '#f49a70', '#80b4ef', '#f28aa2', '#f5bf5c', '#66c1b8', '#c19af0'];
+const k = (v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : v);
 
-function StatCard({ label, value, gradient, icon, sub }) {
+function greeting() {
+  const h = new Date().getHours();
+  return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+}
+
+function ListCard({ title, badge, badgeClass, action, children }) {
   return (
-    <div className="card p-6 hover:shadow-card-hover transition-all duration-300 group">
-      <div className="flex items-start justify-between mb-4">
-        <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl bg-gradient-to-br ${gradient} shadow-lg group-hover:scale-110 transition-transform duration-300`}>
-          {icon}
+    <div className="card flex flex-col">
+      <div className="card-header">
+        <div className="flex items-center gap-2">
+          <p className="card-title">{title}</p>
+          {badge > 0 && <span className={`badge ${badgeClass}`}>{badge}</span>}
         </div>
+        {action}
       </div>
-      <p className="text-3xl font-bold text-slate-900 mb-1">{value}</p>
-      <p className="text-sm text-slate-500 font-medium">{label}</p>
-      {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
+      <div className="flex-1 max-h-80 overflow-y-auto">{children}</div>
     </div>
   );
 }
 
-function applyExpiry(c) {
-  if (c.status === 'paid' && c.endDate && new Date(c.endDate + 'T00:00:00') < new Date()) {
-    return { ...c, status: 'unpaid' };
-  }
-  return c;
-}
-
-function fmt(n) { return `PKR ${Number(n).toLocaleString()}`; }
-
 export default function GymDashboard() {
   const { userProfile } = useAuth();
-  const [customers, setCustomers] = useState([]);
+  const uid = userProfile?.uid;
+  const navigate = useNavigate();
+  const [data, setData] = useState({ customers: [], packages: [], payments: [] });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!userProfile?.uid) return;
-    getDocs(collection(db, 'tenants', userProfile.uid, 'customers'))
-      .then((snap) => setCustomers(snap.docs.map((d) => applyExpiry({ id: d.id, ...d.data() }))))
-      .catch((err) => console.error('Firestore error:', err))
+    if (!uid) return;
+    loadGymData(uid)
+      .then(setData)
+      .catch((e) => { console.error(e); toast.error('Failed to load dashboard'); })
       .finally(() => setLoading(false));
-  }, [userProfile]);
+  }, [uid]);
 
-  const paid   = customers.filter((c) => c.status === 'paid');
-  const unpaid = customers.filter((c) => c.status === 'unpaid');
-  const active = customers.filter((c) => c.endDate && new Date(c.endDate) >= new Date()).length;
-  const expired = customers.filter((c) => c.endDate && new Date(c.endDate) < new Date()).length;
+  const m = useMemo(() => {
+    const today = todayISO();
+    const month = rangeFor('month');
+    const { customers, payments } = data;
+    const withState = customers.map((c) => ({ ...c, ...memberState(c, today), _dues: memberDues(c).total }));
 
-  const totalRevenue   = paid.reduce((s, c) => s + (Number(c.amount) || 0), 0);
-  const unpaidBalance  = unpaid.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+    const sum = (list) => list.reduce((s, p) => s + num(p.amount), 0);
+    const monthPays = payments.filter((p) => inRange(p.date, month.from, month.to));
+    const todayPays = payments.filter((p) => p.date === today);
 
-  const now = new Date();
-  const thisMonth = paid.filter((c) => {
-    if (!c.startDate) return false;
-    const d = new Date(c.startDate + 'T00:00:00');
-    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-  });
-  const monthRevenue = thisMonth.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+    // Last month to date, for a like-for-like comparison.
+    const lm = rangeFor('lastMonth');
+    const dayOfMonth = Number(today.slice(8, 10));
+    const lmTo = `${lm.from.slice(0, 8)}${String(Math.min(dayOfMonth, Number(lm.to.slice(8, 10)))).padStart(2, '0')}`;
+    const lastMonthSoFar = sum(payments.filter((p) => inRange(p.date, lm.from, lmTo)));
 
-  const pieData = [
-    { name: 'Paid', value: paid.length },
-    { name: 'Unpaid', value: unpaid.length },
-  ].filter((d) => d.value > 0);
+    const months = lastMonths(6);
+    const trend = months.map((key) => {
+      const row = { key, label: monthLabel(key), package: 0, monthly: 0, joins: 0 };
+      payments.forEach((p) => { if (monthKey(p.date) === key) row[payKind(p)] += num(p.amount); });
+      customers.forEach((c) => { if (monthKey(c.admissionDate) === key) row.joins += 1; });
+      return row;
+    });
 
-  const membershipData = ['Monthly', 'Quarterly', 'Semi-Annual', 'Annual', 'Daily'].map((type) => ({
-    name: type.replace('Semi-Annual', 'Semi'),
-    count: customers.filter((c) => c.membershipType === type).length,
-  })).filter((d) => d.count > 0);
+    const running = withState.filter((c) => c.state === 'active' || c.state === 'expiring');
+    const pkgCounts = {};
+    running.forEach((c) => { const n = c.membershipType || 'Custom'; pkgCounts[n] = (pkgCounts[n] || 0) + 1; });
 
-  const unpaidList = unpaid;
+    return {
+      total: customers.length,
+      active: running.length,
+      expiring: withState.filter((c) => c.state === 'expiring').sort((a, b) => a.daysLeft - b.daysLeft),
+      expired: withState.filter((c) => c.state === 'expired').sort((a, b) => b.daysLeft - a.daysLeft),
+      dues: withState.filter((c) => c._dues > 0).sort((a, b) => b._dues - a._dues),
+      duesTotal: withState.reduce((s, c) => s + c._dues, 0),
+      monthTotal: sum(monthPays),
+      monthAdmission: sum(monthPays.filter((p) => p.type === 'admission')),
+      monthCount: monthPays.length,
+      lastMonthSoFar,
+      todayTotal: sum(todayPays),
+      todayCount: todayPays.length,
+      allTime: sum(payments),
+      newThisMonth: customers.filter((c) => inRange(c.admissionDate, month.from, month.to)).length,
+      trend,
+      pkgData: Object.entries(pkgCounts).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value),
+      recent: groupPayments(payments).slice(0, 8),
+      retention: customers.length ? Math.round((running.length / customers.length) * 100) : 0,
+    };
+  }, [data]);
+
+  const growth = m.lastMonthSoFar > 0 ? Math.round(((m.monthTotal - m.lastMonthSoFar) / m.lastMonthSoFar) * 100) : null;
+  const go = (filter) => navigate(`/gym/customers?filter=${filter}`);
 
   return (
     <div className="page">
-      <div className="page-header">
+      {/* Header */}
+      <div className="rounded-3xl p-6 mb-6 bg-gradient-to-br from-lavender-100 via-blush-50 to-mint-100 ring-1 ring-lavender-100 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="page-title">Gym Dashboard</h2>
-          <p className="page-subtitle">{userProfile?.name}</p>
+          <p className="text-sm text-slate-500">{greeting()} 👋</p>
+          <h2 className="text-2xl font-bold text-slate-800 mt-0.5">{userProfile?.name || 'Gym Dashboard'}</h2>
+          <p className="text-sm text-slate-500 mt-1">
+            {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <Link to="/gym/customers" className="btn-primary">+ Add Member</Link>
+          <Link to="/gym/packages" className="btn-secondary">🎁 Packages</Link>
           <Link to="/gym/reports" className="btn-secondary">📊 Reports</Link>
-          <Link to="/gym/customers" className="btn-primary">Manage Customers</Link>
         </div>
       </div>
 
+      {/* KPIs */}
       {loading ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">{[0,1,2,3].map(i => <StatCardSkeleton key={i} />)}</div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">{[...Array(8)].map((_, i) => <StatCardSkeleton key={i} />)}</div>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 animate-fade-up">
-          <StatCard label="Total Members"    value={customers.length}   gradient="from-indigo-500 to-purple-600"  icon="👥" />
-          <StatCard label="Revenue Collected" value={fmt(totalRevenue)}  gradient="from-emerald-500 to-teal-600"   icon="💰" sub={`${paid.length} paid members`} />
-          <StatCard label="This Month"       value={fmt(monthRevenue)}  gradient="from-amber-500 to-orange-500"   icon="📅" sub={`${thisMonth.length} payments`} />
-          <StatCard label="Unpaid Balance"   value={fmt(unpaidBalance)} gradient="from-rose-500 to-red-600"       icon="⚠️" sub={`${unpaid.length} members`} />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6 animate-fade-up">
+          <StatTile label="This Month" value={fmtPKR(m.monthTotal)} icon="💰" tone="mint"
+            sub={growth === null ? `${m.monthCount} payments · incl. admission` : `${growth >= 0 ? '▲' : '▼'} ${Math.abs(growth)}% vs last month`} />
+          <StatTile label="Today's Collection" value={fmtPKR(m.todayTotal)} sub={`${m.todayCount} payment${m.todayCount === 1 ? '' : 's'}`} icon="📅" tone="lavender" />
+          <StatTile label="Admission Fees" value={fmtPKR(m.monthAdmission)} sub={`${m.newThisMonth} new members this month`} icon="🎟️" tone="peach" />
+          <StatTile label="Outstanding Dues" value={fmtPKR(m.duesTotal)} sub={`${m.dues.length} members`} icon="⏳" tone="blush" onClick={() => go('dues')} />
+          <StatTile label="Active Members" value={m.active} sub={`${m.retention}% of ${m.total} total`} icon="💪" tone="aqua" onClick={() => go('active')} />
+          <StatTile label="Expiring in 7 days" value={m.expiring.length} sub="follow up for renewal" icon="⏰" tone="butter" onClick={() => go('expiring')} />
+          <StatTile label="Expired" value={m.expired.length} sub="renewal due" icon="🔁" tone="peach" onClick={() => go('expired')} />
+          <StatTile label="All-time Revenue" value={fmtPKR(m.allTime)} sub={`${data.payments.length} payments`} icon="🏦" tone="powder" />
         </div>
       )}
 
+      {/* Charts */}
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6"><ChartSkeleton /><ChartSkeleton /></div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6"><div className="lg:col-span-2"><ChartSkeleton /></div><ChartSkeleton /></div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 animate-fade-up" style={{ animationDelay: '80ms' }}>
-          <div className="card">
-            <div className="card-header">
-              <p className="card-title">Payment Status</p>
-              <span className="text-xs text-slate-400">{customers.length} members</span>
-            </div>
-            <div className="card-body flex items-center justify-center">
-              {customers.length === 0 ? (
-                <div className="text-center py-8 text-slate-400 text-sm">No members yet</div>
-              ) : (
-                <ResponsiveContainer width="100%" height={220}>
-                  <PieChart>
-                    <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={3} dataKey="value">
-                      <Cell fill="#10b981" strokeWidth={0} />
-                      <Cell fill="#ef4444" strokeWidth={0} />
-                    </Pie>
-                    <Tooltip content={<CustomTooltip />} />
-                    <Legend iconType="circle" iconSize={8} formatter={(v) => <span className="text-xs text-slate-600">{v}</span>} />
-                  </PieChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-header"><p className="card-title">Membership Breakdown</p></div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6 animate-fade-up">
+          <div className="card lg:col-span-2">
+            <div className="card-header"><p className="card-title">Revenue — last 6 months</p><span className="text-xs text-slate-400">package · monthly (incl. admission)</span></div>
             <div className="card-body">
-              {membershipData.length === 0 ? (
-                <div className="text-center py-8 text-slate-400 text-sm">No data</div>
-              ) : (
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={membershipData} barSize={32}>
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(16,185,129,0.06)' }} />
-                    <Bar dataKey="count" fill="#10b981" radius={[6,6,0,0]} />
+              {m.trend.every((t) => !t.package && !t.monthly) ? <EmptyState icon="📈" title="No payments yet" /> : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={m.trend} barSize={26}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1eefb" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={k} />
+                    <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(171,156,243,0.08)' }} />
+                    <Legend iconType="circle" iconSize={7} formatter={(v) => <span className="text-xs text-slate-500">{v}</span>} />
+                    <Bar dataKey="package" name="Package" stackId="a" fill={PAY_KINDS.package.color} />
+                    <Bar dataKey="monthly" name="Monthly" stackId="a" fill={PAY_KINDS.monthly.color} radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
             </div>
           </div>
+          <div className="card">
+            <div className="card-header"><p className="card-title">Active members by package</p></div>
+            <div className="card-body">
+              {m.pkgData.length === 0 ? <EmptyState icon="🎁" title="No active members" /> : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <PieChart>
+                    <Pie data={m.pkgData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={3}>
+                      {m.pkgData.map((_, i) => <Cell key={i} fill={PIE[i % PIE.length]} strokeWidth={0} />)}
+                    </Pie>
+                    <Tooltip content={<ChartTooltip money={false} />} />
+                    <Legend iconType="circle" iconSize={7} formatter={(v) => <span className="text-xs text-slate-500">{v}</span>} />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
-      <div className="card animate-fade-up" style={{ animationDelay: '160ms' }}>
-        <div className="card-header">
-          <p className="card-title">Unpaid Members</p>
-          {unpaidList.length > 0 && (
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-600 ring-1 ring-rose-200">
-              {unpaidList.length} pending
-            </span>
-          )}
-        </div>
-        <div className="overflow-x-auto">
-          {loading ? (
-            <div className="p-6"><div className="space-y-3">{[0,1,2].map(i => <div key={i} className="skeleton h-10 w-full" />)}</div></div>
-          ) : unpaidList.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-3xl mb-2">🎉</p>
-              <p className="text-emerald-600 font-semibold text-sm">All members are up to date!</p>
+      {!loading && (
+        <>
+          {/* New members trend */}
+          <div className="card mb-6 animate-fade-up">
+            <div className="card-header"><p className="card-title">New admissions — last 6 months</p></div>
+            <div className="card-body grid grid-cols-3 sm:grid-cols-6 gap-3">
+              {m.trend.map((t) => (
+                <div key={t.key} className="rounded-xl bg-lavender-50 py-3 text-center">
+                  <p className="text-xl font-bold text-lavender-800">{t.joins}</p>
+                  <p className="text-[11px] text-slate-500">{t.label}</p>
+                </div>
+              ))}
             </div>
-          ) : (
-            <table className="simple-table w-full">
-              <thead><tr><th>Name</th><th>Phone</th><th>Membership</th><th>Fee</th><th>Expiry</th></tr></thead>
-              <tbody>
-                {unpaidList.map((c) => (
-                  <tr key={c.id}>
-                    <td className="font-medium text-slate-800">{c.name}</td>
-                    <td className="text-slate-500">{c.phone || '—'}</td>
-                    <td><span className="badge badge-unpaid">{c.membershipType || '—'}</span></td>
-                    <td className="text-slate-700 font-medium">{c.amount ? fmt(c.amount) : '—'}</td>
-                    <td className="text-slate-400">{c.endDate ? new Date(c.endDate + 'T00:00:00').toLocaleDateString() : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          </div>
+
+          {/* Action lists */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 animate-fade-up">
+            <ListCard title="Expiring soon" badge={m.expiring.length} badgeClass="badge-expiring"
+              action={<button className="text-xs font-semibold text-lavender-700 hover:underline" onClick={() => go('expiring')}>View all →</button>}>
+              {m.expiring.length === 0 ? <EmptyState icon="✨" title="Nothing expiring this week" /> : (
+                <ul className="divide-y divide-lavender-50">
+                  {m.expiring.map((c) => (
+                    <li key={c.id} className="px-6 py-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0"><p className="text-sm font-semibold text-slate-800 truncate">{c.name}</p><p className="text-xs text-slate-400">{c.membershipType} · {c.phone || '—'}</p></div>
+                      <span className="badge badge-expiring">{c.daysLeft === 0 ? 'Today' : `${c.daysLeft}d left`}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </ListCard>
+
+            <ListCard title="Pending dues" badge={m.dues.length} badgeClass="badge-unpaid"
+              action={<button className="text-xs font-semibold text-lavender-700 hover:underline" onClick={() => go('dues')}>Collect →</button>}>
+              {m.dues.length === 0 ? <EmptyState icon="🎉" title="All members are paid up" /> : (
+                <ul className="divide-y divide-lavender-50">
+                  {m.dues.map((c) => (
+                    <li key={c.id} className="px-6 py-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0"><p className="text-sm font-semibold text-slate-800 truncate">{c.name}</p><p className="text-xs text-slate-400">{c.phone || '—'}</p></div>
+                      <span className="text-sm font-semibold text-blush-700 whitespace-nowrap">{fmtPKR(c._dues)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </ListCard>
+
+            <ListCard title="Recent payments"
+              action={<Link to="/gym/reports" className="text-xs font-semibold text-lavender-700 hover:underline">Report →</Link>}>
+              {m.recent.length === 0 ? <EmptyState icon="🧾" title="No payments yet" /> : (
+                <ul className="divide-y divide-lavender-50">
+                  {m.recent.map((p) => (
+                    <li key={p.id} className="px-6 py-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-800 truncate">{p.customerName}</p>
+                        <p className="text-xs text-slate-400">{fmtDate(p.date)} · <span className={`badge ${PAY_KINDS[p.kind].badge} !px-1.5 !py-0 !text-[10px]`}>{PAY_KINDS[p.kind].label}</span>{p.admission > 0 && <span className="ml-1">+ admission</span>}</p>
+                      </div>
+                      <span className="text-sm font-semibold text-mint-700 whitespace-nowrap">{fmtPKR(p.total)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </ListCard>
+          </div>
+
+          {m.expired.length > 0 && (
+            <div className="card mt-4 animate-fade-up">
+              <div className="card-header">
+                <div className="flex items-center gap-2"><p className="card-title">Expired — renewal due</p><span className="badge badge-expired">{m.expired.length}</span></div>
+                <button className="text-xs font-semibold text-lavender-700 hover:underline" onClick={() => go('expired')}>Renew members →</button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="simple-table">
+                  <thead><tr><th>Member</th><th>Phone</th><th>Package</th><th>Expired on</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {m.expired.slice(0, 10).map((c) => (
+                      <tr key={c.id}>
+                        <td className="font-semibold text-slate-800">{c.name}</td>
+                        <td className="text-slate-500">{c.phone || '—'}</td>
+                        <td className="text-slate-500">{c.membershipType || '—'}</td>
+                        <td className="text-slate-500">{fmtDate(c.endDate)} <span className="text-xs text-slate-400">({-c.daysLeft}d ago)</span></td>
+                        <td><span className={`badge ${STATE_META.expired.badge}`}>Expired</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }

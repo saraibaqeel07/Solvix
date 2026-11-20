@@ -1,208 +1,286 @@
-import { useEffect, useState } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../../config/firebase';
-import { useAuth } from '../../contexts/AuthContext';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  AreaChart, Area, CartesianGrid, Legend,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, PieChart, Pie, Cell,
 } from 'recharts';
+import { useAuth } from '../../contexts/AuthContext';
 import { StatCardSkeleton, ChartSkeleton } from '../../components/Skeleton';
+import { StatTile, ExportButtons, ChartTooltip, EmptyState } from '../../components/ui';
+import { exportCSV, exportPDF } from '../../utils/export';
+import { fmtDate, inRange, rangeFor, monthLabel, monthKey } from '../../lib/dates';
+import {
+  loadGymData, memberState, memberDues, fmtPKR, num, PAY_KINDS, payKind, groupPayments, PAYMENT_METHODS, STATE_META,
+} from '../../lib/gym';
 
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const PRESETS = [
+  { key: 'today', label: 'Today' },
+  { key: 'week', label: 'This week' },
+  { key: 'month', label: 'This month' },
+  { key: 'lastMonth', label: 'Last month' },
+  { key: 'year', label: 'This year' },
+  { key: 'all', label: 'All time' },
+  { key: 'custom', label: 'Custom' },
+];
 
-function applyExpiry(c) {
-  if (c.status === 'paid' && c.endDate && new Date(c.endDate + 'T00:00:00') < new Date()) {
-    return { ...c, status: 'unpaid' };
-  }
-  return c;
-}
+const TABS = [
+  { key: 'collections', label: '💰 Collections' },
+  { key: 'members',     label: '👥 Members' },
+  { key: 'dues',        label: '⏳ Dues & Renewals' },
+  { key: 'packages',    label: '🎁 Packages' },
+];
 
-function fmt(n) { return `PKR ${Number(n || 0).toLocaleString()}`; }
+const PIE = ['#ab9cf3', '#6cc9a0', '#f49a70', '#80b4ef', '#f28aa2', '#f5bf5c', '#66c1b8', '#c19af0'];
+const k = (v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : v);
 
-function getPast6Months() {
-  const result = [];
-  const now = new Date();
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    result.push({ month: d.getMonth(), year: d.getFullYear(), label: `${MONTHS[d.getMonth()]} ${d.getFullYear()}` });
-  }
-  return result;
-}
-
-const RevenueTooltip = ({ active, payload, label }) => {
-  if (active && payload?.length) {
-    return (
-      <div className="bg-slate-900 text-white px-3 py-2 rounded-xl text-xs shadow-xl space-y-1">
-        <p className="font-semibold text-slate-200">{label}</p>
-        {payload.map((p) => (
-          <p key={p.dataKey} style={{ color: p.color }}>
-            {p.name}: {p.dataKey === 'unpaid' || p.dataKey === 'revenue' || p.dataKey === 'unpaidAmt'
-              ? fmt(p.value) : p.value}
-          </p>
-        ))}
-      </div>
-    );
-  }
-  return null;
-};
-
-function StatCard({ label, value, gradient, icon, sub }) {
-  return (
-    <div className="card p-6 group hover:shadow-card-hover transition-all duration-300">
-      <div className="flex items-start justify-between mb-4">
-        <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl bg-gradient-to-br ${gradient} shadow-lg group-hover:scale-110 transition-transform duration-300`}>
-          {icon}
-        </div>
-      </div>
-      <p className="text-2xl font-bold text-slate-900 mb-1 leading-tight">{value}</p>
-      <p className="text-sm text-slate-500 font-medium">{label}</p>
-      {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
-    </div>
-  );
-}
+function Th({ children, right }) { return <th className={right ? 'text-right' : ''}>{children}</th>; }
 
 export default function GymReports() {
   const { userProfile } = useAuth();
-  const [customers, setCustomers] = useState([]);
+  const uid = userProfile?.uid;
+  const [data, setData] = useState({ customers: [], packages: [], payments: [] });
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('all');
+  const [preset, setPreset] = useState('month');
+  const [custom, setCustom] = useState({ from: '', to: '' });
+  const [tab, setTab] = useState('collections');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [methodFilter, setMethodFilter] = useState('all');
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
-    if (!userProfile?.uid) return;
-    getDocs(collection(db, 'tenants', userProfile.uid, 'customers'))
-      .then((snap) => setCustomers(snap.docs.map((d) => applyExpiry({ id: d.id, ...d.data() }))))
-      .catch((err) => console.error('Firestore error:', err))
+    if (!uid) return;
+    loadGymData(uid)
+      .then(setData)
+      .catch((e) => { console.error(e); toast.error('Failed to load reports'); })
       .finally(() => setLoading(false));
-  }, [userProfile]);
+  }, [uid]);
 
-  const paid   = customers.filter((c) => c.status === 'paid');
-  const unpaid = customers.filter((c) => c.status === 'unpaid');
+  const range = preset === 'custom' ? { from: custom.from || null, to: custom.to || null } : rangeFor(preset);
+  const rangeText = range.from || range.to
+    ? `${range.from ? fmtDate(range.from) : 'Start'} – ${range.to ? fmtDate(range.to) : 'Today'}`
+    : 'All time';
+  const q = search.trim().toLowerCase();
+  const matches = (...vals) => !q || vals.some((v) => String(v || '').toLowerCase().includes(q));
 
-  const totalRevenue  = paid.reduce((s, c) => s + (Number(c.amount) || 0) + (Number(c.admissionFee) || 0), 0);
-  const unpaidBalance = unpaid.reduce((s, c) => s + (Number(c.amount) || 0) + (Number(c.admissionFee) || 0), 0);
+  // ── Collections ─────────────────────────────────────────────────────────────
+  const paymentsInRange = useMemo(
+    () => data.payments.filter((p) => inRange(p.date, range.from, range.to)),
+    [data.payments, range.from, range.to],
+  );
+  const payments = groupPayments(paymentsInRange).filter((p) =>
+    (typeFilter === 'all' || p.kind === typeFilter) &&
+    (methodFilter === 'all' || (p.method || 'Cash') === methodFilter) &&
+    matches(p.customerName, p.phone, p.packageName));
 
-  const now = new Date();
-  const thisMonthPaid = paid.filter((c) => {
-    if (!c.startDate) return false;
-    const d = new Date(c.startDate + 'T00:00:00');
-    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-  });
-  const monthRevenue = thisMonthPaid.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+  const sumType = (t) => paymentsInRange.filter((p) => payKind(p) === t).reduce((s, p) => s + num(p.amount), 0);
+  const totalCollected = paymentsInRange.reduce((s, p) => s + num(p.amount), 0);
+  const admissionTotal = paymentsInRange.filter((p) => p.type === 'admission').reduce((s, p) => s + num(p.amount), 0);
+  const packageTotal = sumType('package');
+  const monthlyTotal = sumType('monthly');
 
-  const past6 = getPast6Months();
-  const monthlyData = past6.map(({ month, year, label }) => {
-    const paidInMonth = paid.filter((c) => {
-      if (!c.startDate) return false;
-      const d = new Date(c.startDate + 'T00:00:00');
-      return d.getMonth() === month && d.getFullYear() === year;
+  const newMembers = data.customers.filter((c) => inRange(c.admissionDate, range.from, range.to));
+  const totalDues = data.customers.reduce((s, c) => s + memberDues(c).total, 0);
+
+  // Group by day for short ranges, by month for long ones.
+  const chartData = useMemo(() => {
+    const short = preset === 'today' || preset === 'week' || preset === 'month' || preset === 'lastMonth';
+    const buckets = {};
+    paymentsInRange.forEach((p) => {
+      const key = short ? p.date : monthKey(p.date);
+      if (!key) return;
+      buckets[key] ||= { key, package: 0, monthly: 0 };
+      buckets[key][payKind(p)] += num(p.amount);
     });
-    const unpaidInMonth = unpaid.filter((c) => {
-      if (!c.startDate) return false;
-      const d = new Date(c.startDate + 'T00:00:00');
-      return d.getMonth() === month && d.getFullYear() === year;
+    return Object.values(buckets).sort((a, b) => a.key.localeCompare(b.key))
+      .map((b) => ({ ...b, label: short ? fmtDate(b.key).slice(0, 6) : monthLabel(b.key) }));
+  }, [paymentsInRange, preset]);
+
+  const methodData = PAYMENT_METHODS.map((m) => ({
+    name: m,
+    value: paymentsInRange.filter((p) => (p.method || 'Cash') === m).reduce((s, p) => s + num(p.amount), 0),
+  })).filter((d) => d.value > 0);
+
+  // ── Members ─────────────────────────────────────────────────────────────────
+  const memberRows = useMemo(() => data.customers.map((c) => {
+    const paid = data.payments.filter((p) => p.customerId === c.id);
+    return {
+      ...c,
+      _state: memberState(c).state,
+      _dues: memberDues(c).total,
+      _paidRange: paid.filter((p) => inRange(p.date, range.from, range.to)).reduce((s, p) => s + num(p.amount), 0),
+      _paidAll: paid.reduce((s, p) => s + num(p.amount), 0),
+    };
+  }).sort((a, b) => (a.name || '').localeCompare(b.name || '')), [data, range.from, range.to]);
+  const membersView = memberRows.filter((r) => matches(r.name, r.phone, r.email, r.membershipType));
+
+  // ── Dues & renewals ────────────────────────────────────────────────────────
+  const dueRows = memberRows
+    .filter((r) => r._dues > 0 || r._state === 'expired' || r._state === 'expiring')
+    .map((r) => ({ ...r, _reason: [r._dues > 0 && 'Unpaid fee', r._state === 'expired' && 'Renewal due', r._state === 'expiring' && 'Expiring soon'].filter(Boolean).join(', ') }))
+    .sort((a, b) => (a.endDate || '').localeCompare(b.endDate || ''))
+    .filter((r) => matches(r.name, r.phone, r.membershipType));
+
+  // ── Packages ───────────────────────────────────────────────────────────────
+  const packageRows = useMemo(() => {
+    const rows = data.packages.map((p) => ({ id: p.id, name: p.name, price: p.price, members: 0, active: 0, sold: 0, revenue: 0 }));
+    const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
+    const other = { id: '', name: 'Custom / no package', price: null, members: 0, active: 0, sold: 0, revenue: 0 };
+    data.customers.forEach((c) => {
+      const r = byId[c.packageId] || other;
+      r.members += 1;
+      if (['active', 'expiring'].includes(memberState(c).state)) r.active += 1;
     });
-    return {
-      label,
-      revenue: paidInMonth.reduce((s, c) => s + (Number(c.amount) || 0), 0),
-      unpaidAmt: unpaidInMonth.reduce((s, c) => s + (Number(c.amount) || 0), 0),
-      members: paidInMonth.length + unpaidInMonth.length,
-    };
-  });
+    paymentsInRange.filter((p) => p.type !== 'admission').forEach((p) => {
+      const r = byId[p.packageId] || other;
+      r.sold += 1;
+      r.revenue += num(p.amount);
+    });
+    return [...rows, ...(other.members || other.sold ? [other] : [])].sort((a, b) => b.revenue - a.revenue);
+  }, [data, paymentsInRange]);
 
-  const admissionsData = past6.map(({ month, year, label }) => ({
-    label,
-    admitted: customers.filter((c) => {
-      if (!c.admissionDate) return false;
-      const d = new Date(c.admissionDate + 'T00:00:00');
-      return d.getMonth() === month && d.getFullYear() === year;
-    }).length,
-  }));
+  // ── Export definitions per tab ─────────────────────────────────────────────
+  const exportDef = () => {
+    if (tab === 'collections') {
+      const cols = [
+        { header: 'Date', value: (p) => p.date },
+        { header: 'Member', value: (p) => p.customerName },
+        { header: 'Phone', value: (p) => p.phone },
+        { header: 'Type', value: (p) => PAY_KINDS[p.kind].label },
+        { header: 'Package', value: (p) => p.packageName },
+        { header: 'Period', value: (p) => (p.periodStart ? `${p.periodStart} to ${p.periodEnd}` : '') },
+        { header: 'Method', value: (p) => p.method || 'Cash' },
+        { header: 'Fee (PKR)', value: (p) => p.fee, align: 'right' },
+        { header: 'Admission (PKR)', value: (p) => p.admission, align: 'right' },
+        { header: 'Total (PKR)', value: (p) => p.total, align: 'right' },
+      ];
+      return { name: 'collections', title: 'Collections Report', cols, rows: payments,
+        totals: { Date: 'TOTAL', 'Fee (PKR)': payments.reduce((s, p) => s + p.fee, 0), 'Admission (PKR)': payments.reduce((s, p) => s + p.admission, 0), 'Total (PKR)': payments.reduce((s, p) => s + p.total, 0) },
+        summary: [
+          { label: 'Total collected', value: fmtPKR(totalCollected) },
+          { label: 'Package fees', value: fmtPKR(packageTotal) },
+          { label: 'Monthly fees', value: fmtPKR(monthlyTotal) },
+          { label: 'Incl. admission fees', value: fmtPKR(admissionTotal) },
+        ] };
+    }
+    if (tab === 'members') {
+      const cols = [
+        { header: 'Name', value: (r) => r.name },
+        { header: 'Phone', value: (r) => r.phone },
+        { header: 'Package', value: (r) => r.membershipType },
+        { header: 'Joined', value: (r) => r.admissionDate },
+        { header: 'Expiry', value: (r) => r.endDate },
+        { header: 'Status', value: (r) => STATE_META[r._state].label },
+        { header: 'Paid in period (PKR)', value: (r) => r._paidRange, align: 'right' },
+        { header: 'Paid all-time (PKR)', value: (r) => r._paidAll, align: 'right' },
+        { header: 'Dues (PKR)', value: (r) => r._dues, align: 'right' },
+      ];
+      return { name: 'members', title: 'Members Report', cols, rows: membersView,
+        totals: { Name: 'TOTAL', 'Paid in period (PKR)': membersView.reduce((s, r) => s + r._paidRange, 0), 'Paid all-time (PKR)': membersView.reduce((s, r) => s + r._paidAll, 0), 'Dues (PKR)': membersView.reduce((s, r) => s + r._dues, 0) },
+        summary: [{ label: 'Members', value: membersView.length }, { label: 'New in period', value: newMembers.length }] };
+    }
+    if (tab === 'dues') {
+      const cols = [
+        { header: 'Name', value: (r) => r.name },
+        { header: 'Phone', value: (r) => r.phone },
+        { header: 'Package', value: (r) => r.membershipType },
+        { header: 'Expiry', value: (r) => r.endDate },
+        { header: 'Reason', value: (r) => r._reason },
+        { header: 'Dues (PKR)', value: (r) => r._dues, align: 'right' },
+      ];
+      return { name: 'dues_renewals', title: 'Dues & Renewals Report', cols, rows: dueRows,
+        totals: { Name: 'TOTAL', 'Dues (PKR)': dueRows.reduce((s, r) => s + r._dues, 0) },
+        summary: [{ label: 'Outstanding dues', value: fmtPKR(totalDues) }, { label: 'Members listed', value: dueRows.length }] };
+    }
+    const cols = [
+      { header: 'Package', value: (r) => r.name },
+      { header: 'Price (PKR)', value: (r) => (r.price === null ? '' : num(r.price)), align: 'right' },
+      { header: 'Active members', value: (r) => r.active, align: 'right' },
+      { header: 'All members', value: (r) => r.members, align: 'right' },
+      { header: 'Sold in period', value: (r) => r.sold, align: 'right' },
+      { header: 'Revenue in period (PKR)', value: (r) => r.revenue, align: 'right' },
+    ];
+    return { name: 'packages', title: 'Package Performance', cols, rows: packageRows,
+      totals: { Package: 'TOTAL', 'Revenue in period (PKR)': packageRows.reduce((s, r) => s + r.revenue, 0) } };
+  };
 
-  const membershipRevenue = ['Monthly','Quarterly','Semi-Annual','Annual','Daily'].map((type) => {
-    const group = paid.filter((c) => c.membershipType === type);
-    return {
-      name: type.replace('Semi-Annual', 'Semi'),
-      revenue: group.reduce((s, c) => s + (Number(c.amount) || 0), 0),
-      count: group.length,
-    };
-  }).filter((d) => d.count > 0);
-
-  const filtered = filter === 'all' ? customers : customers.filter((c) => c.status === filter);
+  const doCSV = () => { const d = exportDef(); exportCSV(`gym_${d.name}`, d.cols, d.rows, d.totals); };
+  const doPDF = () => {
+    const d = exportDef();
+    exportPDF({ title: d.title, subtitle: `${userProfile?.name || ''} · ${tab === 'dues' ? 'As of today' : rangeText}`, columns: d.cols, rows: d.rows, totals: d.totals, summary: d.summary });
+  };
+  const currentCount = { collections: payments.length, members: membersView.length, dues: dueRows.length, packages: packageRows.length }[tab];
 
   return (
     <div className="page">
       <div className="page-header">
         <div>
-          <h2 className="page-title">Revenue Reports</h2>
-          <p className="page-subtitle">Financial summary for {userProfile?.name}</p>
+          <h2 className="page-title">Reports</h2>
+          <p className="page-subtitle">{rangeText} · all fees including admission</p>
         </div>
-        <Link to="/gym/customers" className="btn-secondary">← Customers</Link>
+        <ExportButtons onCSV={doCSV} onPDF={doPDF} disabled={loading || !currentCount} />
       </div>
 
-      {/* Summary Cards */}
+      {/* Date range */}
+      <div className="card px-5 py-4 mb-6 flex flex-wrap items-center gap-2">
+        {PRESETS.map((p) => (
+          <button key={p.key} className={preset === p.key ? 'chip-on' : 'chip-off'} onClick={() => setPreset(p.key)}>{p.label}</button>
+        ))}
+        {preset === 'custom' && (
+          <div className="flex items-center gap-2 ml-auto">
+            <input type="date" className="input !py-1.5 !w-auto" value={custom.from} onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))} />
+            <span className="text-slate-400 text-xs">to</span>
+            <input type="date" className="input !py-1.5 !w-auto" value={custom.to} onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))} />
+          </div>
+        )}
+      </div>
+
+      {/* Summary */}
       {loading ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">{[0,1,2,3].map(i => <StatCardSkeleton key={i} />)}</div>
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">{[0, 1, 2, 3, 4].map((i) => <StatCardSkeleton key={i} />)}</div>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 animate-fade-up">
-          <StatCard label="Total Revenue"     value={fmt(totalRevenue)}  gradient="from-emerald-500 to-teal-600"  icon="💰" sub={`${paid.length} paid members`} />
-          <StatCard label="This Month"        value={fmt(monthRevenue)}  gradient="from-indigo-500 to-purple-600" icon="📅" sub={`${thisMonthPaid.length} payments`} />
-          <StatCard label="Unpaid Balance"    value={fmt(unpaidBalance)} gradient="from-rose-500 to-red-600"      icon="⚠️" sub={`${unpaid.length} members`} />
-          <StatCard label="Total Members"     value={customers.length}   gradient="from-amber-500 to-orange-500"  icon="👥" sub={`${unpaid.length} unpaid`} />
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6 animate-fade-up">
+          <StatTile label="Total Collected" value={fmtPKR(totalCollected)} sub={`${paymentsInRange.length} payments`} icon="💰" tone="mint" />
+          <StatTile label="Package" value={fmtPKR(packageTotal)} sub="incl. admission fees" icon="🎁" tone="lavender" />
+          <StatTile label="Admission Fees" value={fmtPKR(admissionTotal)} sub={`one-time · included above · ${newMembers.length} new`} icon="🎟️" tone="peach" />
+          <StatTile label="Monthly" value={fmtPKR(monthlyTotal)} sub="incl. admission fees" icon="📆" tone="powder" />
+          <StatTile label="Outstanding Dues" value={fmtPKR(totalDues)} sub="as of today" icon="⏳" tone="blush" />
         </div>
       )}
 
-      {/* Charts row 1: Monthly revenue + admissions */}
+      {/* Charts */}
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6"><ChartSkeleton /><ChartSkeleton /></div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6"><div className="lg:col-span-2"><ChartSkeleton /></div><ChartSkeleton /></div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 animate-fade-up" style={{ animationDelay: '80ms' }}>
-          <div className="card">
-            <div className="card-header">
-              <p className="card-title">Monthly Revenue (Last 6 Months)</p>
-            </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6 animate-fade-up">
+          <div className="card lg:col-span-2">
+            <div className="card-header"><p className="card-title">Collections breakdown</p><span className="text-xs text-slate-400">{rangeText}</span></div>
             <div className="card-body">
-              {monthlyData.every(d => d.revenue === 0 && d.unpaidAmt === 0) ? (
-                <div className="text-center py-8 text-slate-400 text-sm">No payment data yet</div>
-              ) : (
-                <ResponsiveContainer width="100%" height={230}>
-                  <BarChart data={monthlyData} barSize={18} barGap={4}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+              {chartData.length === 0 ? <EmptyState icon="📉" title="No payments in this period" /> : (
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart data={chartData} barSize={chartData.length > 12 ? 10 : 22}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1eefb" vertical={false} />
                     <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false}
-                      tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
-                    <Tooltip content={<RevenueTooltip />} cursor={{ fill: 'rgba(16,185,129,0.06)' }} />
-                    <Legend iconType="circle" iconSize={7} formatter={(v) => <span className="text-xs text-slate-500">{v === 'revenue' ? 'Collected' : 'Pending'}</span>} />
-                    <Bar dataKey="revenue"   name="revenue"   fill="#10b981" radius={[4,4,0,0]} />
-                    <Bar dataKey="unpaidAmt" name="unpaidAmt" fill="#f87171" radius={[4,4,0,0]} />
+                    <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={k} />
+                    <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(171,156,243,0.08)' }} />
+                    <Legend iconType="circle" iconSize={7} formatter={(v) => <span className="text-xs text-slate-500">{v}</span>} />
+                    <Bar dataKey="package" name="Package" stackId="a" fill={PAY_KINDS.package.color} />
+                    <Bar dataKey="monthly" name="Monthly" stackId="a" fill={PAY_KINDS.monthly.color} radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
             </div>
           </div>
-
           <div className="card">
-            <div className="card-header">
-              <p className="card-title">New Admissions (Last 6 Months)</p>
-            </div>
+            <div className="card-header"><p className="card-title">By payment method</p></div>
             <div className="card-body">
-              {admissionsData.every(d => d.admitted === 0) ? (
-                <div className="text-center py-8 text-slate-400 text-sm">No admissions recorded yet</div>
-              ) : (
-                <ResponsiveContainer width="100%" height={230}>
-                  <AreaChart data={admissionsData}>
-                    <defs>
-                      <linearGradient id="admGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.18} />
-                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<RevenueTooltip />} cursor={{ stroke: '#6366f1', strokeWidth: 1, strokeDasharray: '4 2' }} />
-                    <Area type="monotone" dataKey="admitted" name="New Members" stroke="#6366f1" strokeWidth={2} fill="url(#admGrad)" dot={{ r: 4, fill: '#6366f1', strokeWidth: 0 }} />
-                  </AreaChart>
+              {methodData.length === 0 ? <EmptyState icon="💳" title="No payments" /> : (
+                <ResponsiveContainer width="100%" height={250}>
+                  <PieChart>
+                    <Pie data={methodData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={3}>
+                      {methodData.map((_, i) => <Cell key={i} fill={PIE[i % PIE.length]} strokeWidth={0} />)}
+                    </Pie>
+                    <Tooltip content={<ChartTooltip />} />
+                    <Legend iconType="circle" iconSize={7} formatter={(v) => <span className="text-xs text-slate-500">{v}</span>} />
+                  </PieChart>
                 </ResponsiveContainer>
               )}
             </div>
@@ -210,105 +288,132 @@ export default function GymReports() {
         </div>
       )}
 
-      {/* Revenue by membership type */}
-      {!loading && membershipRevenue.length > 0 && (
-        <div className="card mb-6 animate-fade-up" style={{ animationDelay: '120ms' }}>
-          <div className="card-header"><p className="card-title">Revenue by Membership Type</p></div>
-          <div className="card-body">
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={membershipRevenue} layout="vertical" barSize={20}>
-                <XAxis type="number" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false}
-                  tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} width={60} />
-                <Tooltip content={<RevenueTooltip />} cursor={{ fill: 'rgba(16,185,129,0.06)' }} />
-                <Bar dataKey="revenue" name="revenue" fill="#10b981" radius={[0,4,4,0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-
-      {/* Payment details table */}
-      <div className="card animate-fade-up" style={{ animationDelay: '160ms' }}>
+      {/* Listings */}
+      <div className="card animate-fade-up">
         <div className="card-header">
-          <p className="card-title">Payment Details</p>
-          <div className="flex items-center gap-2">
-            {['all','paid','unpaid'].map((f) => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors capitalize ${
-                  filter === f
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {f === 'all' ? `All (${customers.length})` : f === 'paid' ? `Paid (${paid.length})` : `Unpaid (${unpaid.length})`}
-              </button>
+          <div className="flex gap-1.5 flex-wrap">
+            {TABS.map((t) => (
+              <button key={t.key} className={tab === t.key ? 'chip-on' : 'chip-off'} onClick={() => setTab(t.key)}>{t.label}</button>
             ))}
+          </div>
+          <div className="flex gap-2 flex-wrap items-center">
+            {tab === 'collections' && (
+              <>
+                <select className="input !py-1.5 !w-auto text-xs" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+                  <option value="all">All types</option>
+                  {Object.entries(PAY_KINDS).map(([key, v]) => <option key={key} value={key}>{v.label}</option>)}
+                </select>
+                <select className="input !py-1.5 !w-auto text-xs" value={methodFilter} onChange={(e) => setMethodFilter(e.target.value)}>
+                  <option value="all">All methods</option>
+                  {PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}
+                </select>
+              </>
+            )}
+            {tab !== 'packages' && (
+              <input className="input !py-1.5 !w-44 text-xs" placeholder="Search name / phone…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            )}
           </div>
         </div>
 
         {loading ? (
-          <div className="p-6 space-y-3">{[0,1,2,3].map(i => <div key={i} className="skeleton h-10 w-full" />)}</div>
-        ) : filtered.length === 0 ? (
-          <div className="text-center py-12 text-slate-400 text-sm">No records found</div>
+          <div className="p-6 space-y-3">{[0, 1, 2, 3].map((i) => <div key={i} className="skeleton h-10 w-full" />)}</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="simple-table w-full">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Admission Date</th>
-                  <th>Membership</th>
-                  <th>Period</th>
-                  <th>Admission Fee</th>
-                  <th>Monthly Fee</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((c) => (
-                  <tr key={c.id}>
-                    <td>
-                      <p className="font-semibold text-slate-800">{c.name}</p>
-                      <p className="text-xs text-slate-400">{c.phone || c.email || ''}</p>
-                    </td>
-                    <td className="text-slate-500">
-                      {c.admissionDate ? new Date(c.admissionDate + 'T00:00:00').toLocaleDateString() : '—'}
-                    </td>
-                    <td><span className={`badge badge-${c.membershipType === 'Annual' ? 'confirmed' : 'gym'}`}>{c.membershipType || '—'}</span></td>
-                    <td className="text-slate-500 text-xs">
-                      {c.startDate ? new Date(c.startDate + 'T00:00:00').toLocaleDateString() : '—'}
-                      {c.endDate ? ` → ${new Date(c.endDate + 'T00:00:00').toLocaleDateString()}` : ''}
-                    </td>
-                    <td className="text-slate-500">
-                      {c.admissionFee ? fmt(c.admissionFee) : '—'}
-                    </td>
-                    <td className={`font-semibold ${c.status === 'paid' ? 'text-emerald-700' : 'text-rose-600'}`}>
-                      {c.amount ? fmt(c.amount) : '—'}
-                    </td>
-                    <td>
-                      <span className={`badge badge-${c.status === 'paid' ? 'paid' : 'unpaid'}`}>{c.status}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="bg-slate-50">
-                  <td colSpan={4} className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">
-                    {filter === 'paid' ? 'Total Collected' : filter === 'unpaid' ? 'Total Pending' : 'Grand Total'}
-                  </td>
-                  <td className="px-4 py-3 font-bold text-slate-700">
-                    {fmt(filtered.reduce((s, c) => s + (Number(c.admissionFee) || 0), 0))}
-                  </td>
-                  <td className="px-4 py-3 font-bold text-slate-900">
-                    {fmt(filtered.reduce((s, c) => s + (Number(c.amount) || 0), 0))}
-                  </td>
-                  <td />
-                </tr>
-              </tfoot>
-            </table>
+          <div className="overflow-x-auto max-h-[560px] overflow-y-auto">
+            {tab === 'collections' && (payments.length === 0 ? <EmptyState icon="🧾" title="No payments match" hint="Try a different date range or filter." /> : (
+              <table className="simple-table">
+                <thead className="sticky top-0"><tr><Th>Date</Th><Th>Member</Th><Th>Type</Th><Th>Package</Th><Th>Period</Th><Th>Method</Th><Th right>Fee</Th><Th right>Admission</Th><Th right>Total</Th></tr></thead>
+                <tbody>
+                  {payments.map((p) => (
+                    <tr key={p.id}>
+                      <td className="whitespace-nowrap">{fmtDate(p.date)}</td>
+                      <td><p className="font-semibold text-slate-800">{p.customerName}</p><p className="text-xs text-slate-400">{p.phone}</p></td>
+                      <td><span className={`badge ${PAY_KINDS[p.kind].badge}`}>{PAY_KINDS[p.kind].label}</span></td>
+                      <td className="text-slate-500">{p.packageName || '—'}</td>
+                      <td className="text-slate-500 text-xs whitespace-nowrap">{p.periodStart ? `${fmtDate(p.periodStart)} → ${fmtDate(p.periodEnd)}` : '—'}</td>
+                      <td className="text-slate-500">{p.method || 'Cash'}</td>
+                      <td className="text-right whitespace-nowrap">{p.fee ? fmtPKR(p.fee) : '—'}</td>
+                      <td className="text-right whitespace-nowrap text-slate-500">{p.admission ? fmtPKR(p.admission) : '—'}</td>
+                      <td className="text-right font-semibold text-slate-800 whitespace-nowrap">{fmtPKR(p.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot><tr className="bg-lavender-50/60">
+                  <td colSpan={6} className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">Total ({payments.length})</td>
+                  <td className="px-4 py-3 text-right font-bold whitespace-nowrap">{fmtPKR(payments.reduce((s, p) => s + p.fee, 0))}</td>
+                  <td className="px-4 py-3 text-right font-bold whitespace-nowrap">{fmtPKR(payments.reduce((s, p) => s + p.admission, 0))}</td>
+                  <td className="px-4 py-3 text-right font-bold text-slate-900 whitespace-nowrap">{fmtPKR(payments.reduce((s, p) => s + p.total, 0))}</td>
+                </tr></tfoot>
+              </table>
+            ))}
+
+            {tab === 'members' && (membersView.length === 0 ? <EmptyState icon="👥" title="No members" /> : (
+              <table className="simple-table">
+                <thead className="sticky top-0"><tr><Th>Member</Th><Th>Package</Th><Th>Joined</Th><Th>Expiry</Th><Th>Status</Th><Th right>Paid (period)</Th><Th right>Paid (all)</Th><Th right>Dues</Th></tr></thead>
+                <tbody>
+                  {membersView.map((r) => (
+                    <tr key={r.id}>
+                      <td><p className="font-semibold text-slate-800">{r.name}</p><p className="text-xs text-slate-400">{r.phone}</p></td>
+                      <td className="text-slate-500">{r.membershipType || '—'}</td>
+                      <td className="text-slate-500 whitespace-nowrap">{fmtDate(r.admissionDate)}</td>
+                      <td className="text-slate-500 whitespace-nowrap">{fmtDate(r.endDate)}</td>
+                      <td><span className={`badge ${STATE_META[r._state].badge}`}>{STATE_META[r._state].label}</span></td>
+                      <td className="text-right whitespace-nowrap">{fmtPKR(r._paidRange)}</td>
+                      <td className="text-right whitespace-nowrap">{fmtPKR(r._paidAll)}</td>
+                      <td className={`text-right font-semibold whitespace-nowrap ${r._dues ? 'text-blush-700' : 'text-slate-400'}`}>{fmtPKR(r._dues)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot><tr className="bg-lavender-50/60">
+                  <td colSpan={5} className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">Total ({membersView.length})</td>
+                  <td className="px-4 py-3 text-right font-bold whitespace-nowrap">{fmtPKR(membersView.reduce((s, r) => s + r._paidRange, 0))}</td>
+                  <td className="px-4 py-3 text-right font-bold whitespace-nowrap">{fmtPKR(membersView.reduce((s, r) => s + r._paidAll, 0))}</td>
+                  <td className="px-4 py-3 text-right font-bold text-blush-700 whitespace-nowrap">{fmtPKR(membersView.reduce((s, r) => s + r._dues, 0))}</td>
+                </tr></tfoot>
+              </table>
+            ))}
+
+            {tab === 'dues' && (dueRows.length === 0 ? <EmptyState icon="🎉" title="No dues or pending renewals" /> : (
+              <table className="simple-table">
+                <thead className="sticky top-0"><tr><Th>Member</Th><Th>Package</Th><Th>Expiry</Th><Th>Reason</Th><Th right>Dues</Th></tr></thead>
+                <tbody>
+                  {dueRows.map((r) => (
+                    <tr key={r.id}>
+                      <td><p className="font-semibold text-slate-800">{r.name}</p><p className="text-xs text-slate-400">{r.phone}</p></td>
+                      <td className="text-slate-500">{r.membershipType || '—'}</td>
+                      <td className="whitespace-nowrap"><span className={`badge ${STATE_META[r._state].badge}`}>{fmtDate(r.endDate)}</span></td>
+                      <td className="text-slate-500 text-xs">{r._reason}</td>
+                      <td className="text-right font-semibold text-blush-700 whitespace-nowrap">{fmtPKR(r._dues)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot><tr className="bg-lavender-50/60">
+                  <td colSpan={4} className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">Total outstanding</td>
+                  <td className="px-4 py-3 text-right font-bold text-blush-700 whitespace-nowrap">{fmtPKR(dueRows.reduce((s, r) => s + r._dues, 0))}</td>
+                </tr></tfoot>
+              </table>
+            ))}
+
+            {tab === 'packages' && (packageRows.length === 0 ? <EmptyState icon="🎁" title="No packages yet" /> : (
+              <table className="simple-table">
+                <thead className="sticky top-0"><tr><Th>Package</Th><Th right>Price</Th><Th right>Active</Th><Th right>All members</Th><Th right>Sold (period)</Th><Th right>Revenue (period)</Th></tr></thead>
+                <tbody>
+                  {packageRows.map((r) => (
+                    <tr key={r.id || 'other'}>
+                      <td className="font-semibold text-slate-800">{r.name}</td>
+                      <td className="text-right">{r.price === null ? '—' : fmtPKR(r.price)}</td>
+                      <td className="text-right">{r.active}</td>
+                      <td className="text-right">{r.members}</td>
+                      <td className="text-right">{r.sold}</td>
+                      <td className="text-right font-semibold whitespace-nowrap">{fmtPKR(r.revenue)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot><tr className="bg-lavender-50/60">
+                  <td colSpan={5} className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide">Total (excl. admission fees)</td>
+                  <td className="px-4 py-3 text-right font-bold whitespace-nowrap">{fmtPKR(packageRows.reduce((s, r) => s + r.revenue, 0))}</td>
+                </tr></tfoot>
+              </table>
+            ))}
           </div>
         )}
       </div>

@@ -6,8 +6,26 @@
 
 @layer base {
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: 'Inter', system-ui, sans-serif; background: #f8fafc; }
+  body { margin: 0; font-family: 'Inter', system-ui, sans-serif; background: #f8f6fd; color: #334155; }
   #root { min-height: 100vh; }
+
+  /* ── Pastel scrollbars ── */
+  /* Firefox only — in Chrome/Edge these standard props would override the ::-webkit styles below */
+  @supports (-moz-appearance: none) {
+    * { scrollbar-width: thin; scrollbar-color: #c7bbfb transparent; }
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: #ddd5fe;
+    border-radius: 999px;
+    border: 3px solid transparent;          /* inset look: thumb floats inside the track */
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover  { background: #ab9cf3; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:active { background: #9583ea; background-clip: padding-box; }
+  ::-webkit-scrollbar-corner { background: transparent; }
+  ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }  /* hide the ◀ ▶ arrows */
 }
 
 @keyframes fadeIn   { from { opacity: 0 } to { opacity: 1 } }
@@ -20,7 +38,7 @@
 @layer components {
   /* ── Shimmer skeleton ── */
   .skeleton {
-    background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+    background: linear-gradient(90deg, #f4f1fd 25%, #ebe6fb 50%, #f4f1fd 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite;
     border-radius: 8px;
@@ -28,56 +46,66 @@
 
   /* ── Form inputs ── */
   .input {
-    @apply w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-800
-           focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400
+    @apply w-full px-3.5 py-2.5 rounded-xl border border-lavender-100 bg-white text-sm text-slate-800
+           focus:outline-none focus:ring-4 focus:ring-lavender-100 focus:border-lavender-300
            placeholder:text-slate-400 transition-all duration-200;
   }
   .label { @apply block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5; }
 
   /* ── Buttons ── */
-  .btn { @apply inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all duration-200 cursor-pointer border-0; }
-  .btn-primary   { @apply btn bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm hover:shadow-md active:scale-95; }
-  .btn-secondary { @apply btn bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 active:scale-95; }
-  .btn-danger    { @apply btn bg-rose-600 text-white hover:bg-rose-700 active:scale-95; }
-  .btn-ghost     { @apply btn text-slate-600 hover:bg-slate-100 active:scale-95; }
+  .btn { @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all duration-200 cursor-pointer border-0 disabled:opacity-60 disabled:cursor-not-allowed; }
+  .btn-primary   { @apply btn bg-lavender-500 text-white hover:bg-lavender-600 shadow-sm shadow-lavender-200 hover:shadow-md active:scale-95; }
+  .btn-secondary { @apply btn bg-white text-slate-700 border border-lavender-100 hover:bg-lavender-50 active:scale-95; }
+  .btn-soft      { @apply btn bg-lavender-100 text-lavender-800 hover:bg-lavender-200 active:scale-95; }
+  .btn-mint      { @apply btn bg-mint-100 text-mint-800 hover:bg-mint-200 active:scale-95; }
+  .btn-danger    { @apply btn bg-blush-500 text-white hover:bg-blush-600 active:scale-95; }
+  .btn-ghost     { @apply btn text-slate-600 hover:bg-lavender-50 active:scale-95; }
   .btn-sm        { @apply px-3 py-1.5 text-xs rounded-lg; }
 
   /* ── Cards ── */
   .card {
-    @apply bg-white rounded-2xl border border-slate-100 shadow-card transition-shadow duration-300;
+    @apply bg-white rounded-2xl border border-lavender-100/70 shadow-card transition-shadow duration-300;
   }
-  .card:hover { box-shadow: var(--tw-shadow-card-hover, 0 10px 40px -10px rgb(0 0 0 / .12)); }
-  .card-header { @apply flex items-center justify-between px-6 py-4 border-b border-slate-50; }
+  .card-header { @apply flex items-center justify-between gap-3 flex-wrap px-6 py-4 border-b border-lavender-50; }
   .card-body   { @apply p-6; }
   .card-title  { @apply text-sm font-semibold text-slate-700; }
 
   /* ── Badges ── */
-  .badge { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold; }
-  .badge-gym     { @apply bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200; }
-  .badge-padel   { @apply bg-amber-50 text-amber-700 ring-1 ring-amber-200; }
-  .badge-cricket { @apply bg-rose-50 text-rose-700 ring-1 ring-rose-200; }
-  .badge-paid    { @apply bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200; }
-  .badge-unpaid  { @apply bg-rose-50 text-rose-700 ring-1 ring-rose-200; }
-  .badge-confirmed { @apply bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200; }
+  .badge { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap; }
+  .badge-gym       { @apply bg-mint-50 text-mint-700 ring-1 ring-mint-200; }
+  .badge-padel     { @apply bg-butter-50 text-butter-700 ring-1 ring-butter-200; }
+  .badge-cricket   { @apply bg-blush-50 text-blush-700 ring-1 ring-blush-200; }
+  .badge-paid      { @apply bg-mint-50 text-mint-700 ring-1 ring-mint-200; }
+  .badge-active    { @apply bg-mint-50 text-mint-700 ring-1 ring-mint-200; }
+  .badge-unpaid    { @apply bg-blush-50 text-blush-700 ring-1 ring-blush-200; }
+  .badge-expired   { @apply bg-peach-50 text-peach-700 ring-1 ring-peach-200; }
+  .badge-expiring  { @apply bg-butter-50 text-butter-700 ring-1 ring-butter-200; }
+  .badge-confirmed { @apply bg-lavender-50 text-lavender-700 ring-1 ring-lavender-200; }
+  .badge-info      { @apply bg-powder-50 text-powder-700 ring-1 ring-powder-200; }
   .badge-cancelled { @apply bg-slate-100 text-slate-500 ring-1 ring-slate-200; }
+
+  /* ── Filter chips ── */
+  .chip     { @apply px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer border-0 whitespace-nowrap; }
+  .chip-off { @apply chip bg-lavender-50 text-slate-600 hover:bg-lavender-100; }
+  .chip-on  { @apply chip bg-lavender-500 text-white shadow-sm; }
 
   /* ── Form groups ── */
   .form-group { @apply flex flex-col gap-1.5; }
   .form-group label { @apply label; }
-  .form-group input, .form-group select, .form-group textarea { @apply input; }
+  .form-group input:not([type=checkbox]), .form-group select, .form-group textarea { @apply input; }
+  .form-group input:disabled, .form-group select:disabled { @apply bg-lavender-50/70 text-slate-500 cursor-not-allowed border-lavender-100; }
   .form-row { @apply grid grid-cols-2 gap-4; }
 
   /* ── Tables ── */
   .simple-table { @apply w-full text-sm; }
-  .simple-table th { @apply text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide bg-slate-50 border-b border-slate-100; }
-  .simple-table td { @apply px-4 py-3 text-slate-700 border-b border-slate-50; }
+  .simple-table th { @apply text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide bg-lavender-50/60 border-b border-lavender-100 whitespace-nowrap; }
+  .simple-table td { @apply px-4 py-3 text-slate-700 border-b border-lavender-50; }
   .simple-table tr:last-child td { @apply border-0; }
-  .simple-table tr:hover td { @apply bg-slate-50/50; }
+  .simple-table tbody tr:hover td { @apply bg-lavender-50/40; }
 
   /* ── Page ── */
   .page { @apply max-w-7xl animate-fade-up; }
   .page-header { @apply flex items-center justify-between mb-6 flex-wrap gap-3; }
-  .page-title  { @apply text-xl font-bold text-slate-900; }
+  .page-title  { @apply text-xl font-bold text-slate-800; }
   .page-subtitle { @apply text-sm text-slate-500 mt-0.5; }
 }
-

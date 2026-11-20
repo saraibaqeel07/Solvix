@@ -6,13 +6,13 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveCo
 import { StatCardSkeleton, ChartSkeleton } from '../../components/Skeleton';
 
 const COLORS = {
-  gym:     { bg: 'from-emerald-500 to-teal-600',   light: 'bg-emerald-50',  text: 'text-emerald-600',  hex: '#10b981' },
-  padel:   { bg: 'from-amber-500 to-orange-500',   light: 'bg-amber-50',    text: 'text-amber-600',    hex: '#f59e0b' },
-  cricket: { bg: 'from-rose-500 to-red-600',       light: 'bg-rose-50',     text: 'text-rose-600',     hex: '#ef4444' },
-  total:   { bg: 'from-indigo-500 to-purple-600',  light: 'bg-indigo-50',   text: 'text-indigo-600',   hex: '#6366f1' },
+  gym:     { bg: 'from-emerald-500 to-teal-600',   light: 'bg-emerald-50',  text: 'text-emerald-600',  hex: '#6cc9a0' },
+  padel:   { bg: 'from-amber-500 to-orange-500',   light: 'bg-amber-50',    text: 'text-amber-600',    hex: '#f5bf5c' },
+  cricket: { bg: 'from-rose-500 to-red-600',       light: 'bg-rose-50',     text: 'text-rose-600',     hex: '#f28aa2' },
+  total:   { bg: 'from-indigo-500 to-purple-600',  light: 'bg-indigo-50',   text: 'text-indigo-600',   hex: '#ab9cf3' },
 };
 
-const PIE_COLORS = ['#10b981', '#f59e0b', '#ef4444'];
+const PIE_COLORS = ['#6cc9a0', '#f5bf5c', '#f28aa2'];
 
 function StatCard({ label, value, gradient, icon, delay = 0 }) {
   return (
@@ -31,9 +31,9 @@ function StatCard({ label, value, gradient, icon, delay = 0 }) {
 const CustomTooltip = ({ active, payload, label }) => {
   if (active && payload?.length) {
     return (
-      <div className="bg-slate-900 text-white px-3 py-2 rounded-xl text-xs shadow-xl">
+      <div className="bg-white text-slate-700 ring-1 ring-lavender-100 px-3 py-2 rounded-xl text-xs shadow-lg">
         <p className="font-semibold">{label || payload[0].name}</p>
-        <p className="text-slate-300">{payload[0].value} tenant{payload[0].value !== 1 ? 's' : ''}</p>
+        <p className="text-slate-500">{payload[0].value} tenant{payload[0].value !== 1 ? 's' : ''}</p>
       </div>
     );
   }

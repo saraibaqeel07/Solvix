@@ -7,14 +7,14 @@ export default function Layout({ children }) {
   const isMobile = useMediaQuery({ maxWidth: 768 });
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
+    <div className="flex min-h-screen bg-[#f8f6fd]">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex-1 flex flex-col min-w-0">
         {isMobile && (
-          <header className="sticky top-0 z-30 flex items-center gap-3 px-4 py-3 border-b border-slate-100 bg-white/80 backdrop-blur-md">
+          <header className="sticky top-0 z-30 flex items-center gap-3 px-4 py-3 border-b border-lavender-100 bg-white/80 backdrop-blur-md">
             <button
               onClick={() => setSidebarOpen(true)}
-              className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-slate-100 transition-colors text-slate-600"
+              className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-lavender-50 transition-colors text-slate-600"
             >
               ☰
             </button>

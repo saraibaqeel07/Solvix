@@ -1,7 +1,8 @@
 import { createPortal } from 'react-dom';
 import { useEffect } from 'react';
 
-export default function Modal({ show, onClose, children, size = 'md' }) {
+// Closes only via the ✕ / Cancel buttons — clicking the backdrop does nothing, so forms aren't lost by accident.
+export default function Modal({ show, children, size = 'md' }) {
   useEffect(() => {
     if (!show) return;
     document.body.style.overflow = 'hidden';
@@ -10,23 +11,21 @@ export default function Modal({ show, onClose, children, size = 'md' }) {
 
   if (!show) return null;
 
-  const widths = { sm: 'max-w-sm', md: 'max-w-lg', lg: 'max-w-2xl' };
+  const widths = { sm: 'max-w-sm', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl' };
 
   return createPortal(
     <div
-      onClick={onClose}
       style={{
         position: 'fixed', inset: 0, zIndex: 99999,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: '16px',
-        background: 'rgba(2, 6, 23, 0.82)',
+        background: 'rgba(47, 40, 96, 0.28)',
         backdropFilter: 'blur(8px)',
         WebkitBackdropFilter: 'blur(8px)',
         animation: 'fadeIn 0.15s ease-out',
       }}
     >
       <div
-        onClick={(e) => e.stopPropagation()}
         className={`bg-white w-full ${widths[size]} rounded-2xl overflow-hidden shadow-2xl`}
         style={{
           maxHeight: '90vh',
@@ -43,9 +42,9 @@ export default function Modal({ show, onClose, children, size = 'md' }) {
 
 export function ModalHeader({ icon, title, subtitle, onClose }) {
   return (
-    <div className="flex items-center gap-3 px-6 py-5 border-b border-slate-100">
+    <div className="flex items-center gap-3 px-6 py-5 border-b border-lavender-100">
       {icon && (
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0 bg-slate-50">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0 bg-lavender-50">
           {icon}
         </div>
       )}
@@ -67,7 +66,7 @@ export function ModalBody({ children }) {
 
 export function ModalFooter({ children }) {
   return (
-    <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50">
+    <div className="flex justify-end gap-3 px-6 py-4 border-t border-lavender-100 bg-lavender-50/50">
       {children}
     </div>
   );

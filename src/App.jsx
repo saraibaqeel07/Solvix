@@ -9,12 +9,17 @@ import Tenants from './pages/ceo/Tenants';
 import GymDashboard from './pages/gym/GymDashboard';
 import Customers from './pages/gym/Customers';
 import GymReports from './pages/gym/GymReports';
+import Packages from './pages/gym/Packages';
 import PadelDashboard from './pages/padel/PadelDashboard';
 import PadelBookings from './pages/padel/PadelBookings';
 import PadelCalendar from './pages/padel/PadelCalendar';
 import CricketDashboard from './pages/cricket/CricketDashboard';
 import CricketBookings from './pages/cricket/CricketBookings';
 import CricketCalendar from './pages/cricket/CricketCalendar';
+import PadelReports from './pages/padel/PadelReports';
+import PadelSettings from './pages/padel/PadelSettings';
+import CricketReports from './pages/cricket/CricketReports';
+import CricketSettings from './pages/cricket/CricketSettings';
 
 const ROLE_HOME = {
   ceo: '/ceo/dashboard',
@@ -49,6 +54,9 @@ function AppRoutes() {
       <Route path="/gym/customers" element={
         <ProtectedRoute allowedRoles={['gym']}><Layout><Customers /></Layout></ProtectedRoute>
       } />
+      <Route path="/gym/packages" element={
+        <ProtectedRoute allowedRoles={['gym']}><Layout><Packages /></Layout></ProtectedRoute>
+      } />
       <Route path="/gym/reports" element={
         <ProtectedRoute allowedRoles={['gym']}><Layout><GymReports /></Layout></ProtectedRoute>
       } />
@@ -62,6 +70,12 @@ function AppRoutes() {
       <Route path="/padel/calendar" element={
         <ProtectedRoute allowedRoles={['padel']}><Layout><PadelCalendar /></Layout></ProtectedRoute>
       } />
+      <Route path="/padel/reports" element={
+        <ProtectedRoute allowedRoles={['padel']}><Layout><PadelReports /></Layout></ProtectedRoute>
+      } />
+      <Route path="/padel/settings" element={
+        <ProtectedRoute allowedRoles={['padel']}><Layout><PadelSettings /></Layout></ProtectedRoute>
+      } />
 
       <Route path="/cricket/dashboard" element={
         <ProtectedRoute allowedRoles={['cricket']}><Layout><CricketDashboard /></Layout></ProtectedRoute>
@@ -71,6 +85,12 @@ function AppRoutes() {
       } />
       <Route path="/cricket/calendar" element={
         <ProtectedRoute allowedRoles={['cricket']}><Layout><CricketCalendar /></Layout></ProtectedRoute>
+      } />
+      <Route path="/cricket/reports" element={
+        <ProtectedRoute allowedRoles={['cricket']}><Layout><CricketReports /></Layout></ProtectedRoute>
+      } />
+      <Route path="/cricket/settings" element={
+        <ProtectedRoute allowedRoles={['cricket']}><Layout><CricketSettings /></Layout></ProtectedRoute>
       } />
 
       <Route path="*" element={<Navigate to="/" replace />} />
@@ -82,7 +102,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Toaster position="top-right" richColors />
+        <Toaster position="top-right" richColors toastOptions={{ style: { borderRadius: 14 } }} />
         <AppRoutes />
       </AuthProvider>
     </BrowserRouter>
