@@ -10,6 +10,13 @@ import { collection, getDocs, addDoc, doc, updateDoc } from 'firebase/firestore'
 import { db } from '../config/firebase';
 import { todayISO, addDays, addMonths, diffDays } from './dates';
 
+// Who tenants contact about demos, payments and suspensions.
+export const SUPPORT = {
+  phone: '03052674578',
+  whatsapp: '923052674578', // international format for wa.me links
+  email: 'saraibaqeel07@gmail.com',
+};
+
 export const TENANT_STATUSES = {
   demo:      { label: 'Demo',      badge: 'badge-info' },
   active:    { label: 'Paid',      badge: 'badge-paid' },

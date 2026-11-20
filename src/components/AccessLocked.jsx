@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { LogoMark } from './Logo';
 import { fmtDate } from '../lib/dates';
-import { fmtPKR, tenantDues } from '../lib/tenants';
+import { SUPPORT, fmtPKR, tenantDues } from '../lib/tenants';
 
 // Full-screen block shown to a tenant whose demo / paid period has ended or who is suspended.
 export default function AccessLocked({ access }) {
@@ -22,6 +22,10 @@ export default function AccessLocked({ access }) {
     : wasDemo
       ? `Your free demo ended on ${fmtDate(access.until)}. Subscribe to keep using Slotify — your data is safe and waiting for you.`
       : `Your subscription ended on ${fmtDate(access.until)}. Please clear the pending dues to continue using your dashboard.`;
+
+  const waText = `Hi, this is ${userProfile?.name || 'a Slotify tenant'} (${userProfile?.email || ''}). ${
+    access.state === 'suspended' ? 'My account is suspended' : wasDemo ? 'My demo has ended' : 'My subscription has ended'
+  } — I'd like to ${access.state === 'suspended' ? 'restore access' : 'continue using Slotify'}.`;
 
   const checkAgain = async () => {
     setChecking(true);
@@ -46,8 +50,23 @@ export default function AccessLocked({ access }) {
           </div>
         )}
 
-        <p className="text-xs text-slate-400 mt-5">
-          Contact the Slotify administrator to {access.state === 'suspended' ? 'restore access' : 'make the payment'}. Once it's recorded, press “Check again”.
+        <div className="mt-5 rounded-2xl bg-lavender-50/70 ring-1 ring-lavender-100 p-4 text-left">
+          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-2">
+            Contact Slotify to {access.state === 'suspended' ? 'restore access' : 'make the payment'}
+          </p>
+          <div className="space-y-1.5 text-sm">
+            <p className="flex items-center gap-2 text-slate-700">📞 <a href={`tel:${SUPPORT.phone}`} className="font-semibold hover:text-lavender-700">{SUPPORT.phone}</a></p>
+            <p className="flex items-center gap-2 text-slate-700 break-all">✉️ <a href={`mailto:${SUPPORT.email}`} className="font-semibold hover:text-lavender-700">{SUPPORT.email}</a></p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 mt-3">
+            <a href={`tel:${SUPPORT.phone}`} className="btn-soft btn-sm">Call</a>
+            <a href={`https://wa.me/${SUPPORT.whatsapp}?text=${encodeURIComponent(waText)}`} target="_blank" rel="noreferrer" className="btn-mint btn-sm">WhatsApp</a>
+            <a href={`mailto:${SUPPORT.email}?subject=${encodeURIComponent(`Slotify access — ${userProfile?.name || ''}`)}&body=${encodeURIComponent(waText)}`} className="btn-soft btn-sm">Email</a>
+          </div>
+        </div>
+
+        <p className="text-xs text-slate-400 mt-4">
+          Once {access.state === 'suspended' ? 'access is restored' : 'your payment is recorded'}, press “Check again”.
         </p>
 
         <div className="flex gap-3 mt-6">

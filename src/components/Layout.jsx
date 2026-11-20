@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useMediaQuery } from 'react-responsive';
 import Sidebar from './Sidebar';
 import { useAuth } from '../contexts/AuthContext';
-import { tenantAccess, daysLeftText } from '../lib/tenants';
+import { SUPPORT, tenantAccess, daysLeftText } from '../lib/tenants';
 import { fmtDate } from '../lib/dates';
 
 // Shown to tenants on a demo, or whose paid period ends within a few days.
@@ -18,7 +18,8 @@ function AccessBanner() {
       <span className="text-base">{demo ? '🧪' : '⏳'}</span>
       <span className="font-semibold">{demo ? 'Demo access' : 'Subscription ending'}</span>
       <span>· {daysLeftText(a)} (until {fmtDate(a.until)})</span>
-      <span className="opacity-75">— contact the Slotify administrator to {demo ? 'subscribe' : 'renew'}.</span>
+      <span className="opacity-75">— to {demo ? 'subscribe' : 'renew'}, call / WhatsApp</span>
+      <a href={`https://wa.me/${SUPPORT.whatsapp}`} target="_blank" rel="noreferrer" className="font-semibold underline underline-offset-2">{SUPPORT.phone}</a>
     </div>
   );
 }
