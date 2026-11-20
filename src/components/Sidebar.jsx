@@ -1,3 +1,4 @@
+import Logo from './Logo';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'sonner';
@@ -54,15 +55,7 @@ export default function Sidebar({ open, onClose }) {
 
       {/* Logo */}
       <div className="px-5 pt-6 pb-4 border-b border-lavender-100/70">
-        <div className="flex items-center gap-3 mb-4">
-          <div className={`w-9 h-9 rounded-xl flex items-center justify-center bg-gradient-to-br ${cfg.tile} shadow-sm`}>
-            <span className="text-base">⚡</span>
-          </div>
-          <div>
-            <p className="text-slate-800 font-bold text-base leading-none">Solvix</p>
-            <p className="text-slate-400 text-[10px] mt-0.5">Management Platform</p>
-          </div>
-        </div>
+        <Logo size={38} tagline="Bookings & Memberships" className="mb-4" />
 
         {/* Role badge */}
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-white ring-1 ring-lavender-100">

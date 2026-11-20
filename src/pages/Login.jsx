@@ -1,3 +1,4 @@
+import { LogoMark } from '../components/Logo';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -50,11 +51,9 @@ export default function Login() {
 
           {/* Logo */}
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 shadow-glow-indigo" style={{ background: 'linear-gradient(135deg, #ddd5fe, #fecad6)' }}>
-              <span className="text-2xl">⚡</span>
-            </div>
-            <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Solvix</h1>
-            <p className="text-slate-500 text-sm mt-1">Sports & Fitness Management</p>
+            <LogoMark size={68} className="mx-auto mb-4 drop-shadow-[0_8px_24px_rgba(179,164,246,0.45)]" />
+            <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">Slot<span className="text-lavender-600">ify</span></h1>
+            <p className="text-slate-500 text-sm mt-1">Bookings & memberships for gyms, courts and pitches</p>
           </div>
 
           {/* Form */}
@@ -109,7 +108,7 @@ export default function Login() {
             </button>
           </form>
 
-          <p className="text-center text-xs text-slate-400 mt-6">Solvix — Multi-Tenant Management Platform</p>
+          <p className="text-center text-xs text-slate-400 mt-6">Slotify — Bookings & Memberships Platform</p>
         </div>
       </div>
     </div>
