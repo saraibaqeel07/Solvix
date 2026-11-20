@@ -1,3 +1,4 @@
+import Logo from './Logo';
 import { useState } from 'react';
 import { useMediaQuery } from 'react-responsive';
 import Sidebar from './Sidebar';
@@ -18,10 +19,7 @@ export default function Layout({ children }) {
             >
               ☰
             </button>
-            <div className="flex items-center gap-2">
-              <span className="text-lg">⚡</span>
-              <span className="font-bold text-slate-800">Solvix</span>
-            </div>
+            <Logo size={30} />
           </header>
         )}
         <main className="flex-1 p-6 md:p-8 overflow-y-auto">{children}</main>

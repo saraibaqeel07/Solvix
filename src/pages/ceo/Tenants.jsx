@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { db, firebaseConfig } from '../../config/firebase';
@@ -16,6 +16,15 @@ export default function Tenants() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [editing, setEditing] = useState(null); // tenant being edited, null = enrolling new
+
+  const openAdd = () => { setEditing(null); setForm(EMPTY_FORM); setShowModal(true); };
+  const openEdit = (t) => {
+    setEditing(t);
+    setForm({ name: t.name || '', email: t.email || '', password: '', phone: t.phone || '', address: t.address || '', role: t.role || 'gym' });
+    setShowModal(true);
+  };
+  const closeModal = () => { setShowModal(false); setEditing(null); setForm(EMPTY_FORM); };
 
   const fetchTenants = async () => {
     try {
@@ -34,6 +43,27 @@ export default function Tenants() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (editing) {
+      if (!form.name.trim()) { toast.error('Business name is required'); return; }
+      setSaving(true);
+      try {
+        await updateDoc(doc(db, 'tenants', editing.id), {
+          name: form.name.trim(),
+          phone: form.phone.trim(),
+          address: form.address.trim(),
+          role: form.role,
+          updatedAt: Date.now(),
+        });
+        toast.success(`Tenant "${form.name.trim()}" updated`);
+        closeModal();
+        fetchTenants();
+      } catch (err) {
+        toast.error(err.message || 'Failed to update tenant');
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     if (!form.name || !form.email || !form.password || !form.role) {
       toast.error('Please fill all required fields');
       return;
@@ -55,8 +85,7 @@ export default function Tenants() {
       });
 
       toast.success(`Tenant "${form.name}" enrolled successfully`);
-      setForm(EMPTY_FORM);
-      setShowModal(false);
+      closeModal();
       fetchTenants();
     } catch (err) {
       if (err.code === 'auth/email-already-in-use') {
@@ -97,7 +126,10 @@ export default function Tenants() {
       data: null,
       orderable: false,
       render: (_, __, row) =>
-        `<button class="px-3 py-1.5 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors border border-rose-100" data-id="${row.id}" data-name="${row.name}">Remove</button>`,
+        `<div class="flex gap-2">` +
+        `<button class="px-3 py-1.5 text-xs font-semibold text-lavender-700 bg-lavender-50 hover:bg-lavender-100 rounded-lg transition-colors border border-lavender-100" data-action="edit" data-id="${row.id}">Edit</button>` +
+        `<button class="px-3 py-1.5 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors border border-rose-100" data-action="remove" data-id="${row.id}">Remove</button>` +
+        `</div>`,
     },
   ];
 
@@ -105,7 +137,7 @@ export default function Tenants() {
     <div className="page">
       <div className="page-header">
         <h2 className="page-title">Tenant Management</h2>
-        <button className="btn-primary" onClick={() => setShowModal(true)}>+ Enroll Tenant</button>
+        <button className="btn-primary" onClick={openAdd}>+ Enroll Tenant</button>
       </div>
 
       <div className="card">
@@ -116,19 +148,23 @@ export default function Tenants() {
             data={tenants}
             columns={columns}
             onClick={(e) => {
-              const btn = e.target.closest('[data-id]');
-              if (btn) setDeleteTarget({ id: btn.dataset.id, name: btn.dataset.name });
+              const btn = e.target.closest('[data-action]');
+              if (!btn) return;
+              const t = tenants.find((x) => x.id === btn.dataset.id);
+              if (!t) return;
+              if (btn.dataset.action === 'edit') openEdit(t);
+              else setDeleteTarget({ id: t.id, name: t.name });
             }}
           />
         )}
       </div>
 
-      <Modal show={showModal} onClose={() => setShowModal(false)}>
+      <Modal show={showModal} onClose={closeModal}>
         <ModalHeader
-          icon="🏢"
-          title="Enroll New Tenant"
-          subtitle="Create a new business account on Solvix"
-          onClose={() => setShowModal(false)}
+          icon={editing ? '✏️' : '🏢'}
+          title={editing ? 'Edit Tenant' : 'Enroll New Tenant'}
+          subtitle={editing ? `Update details for ${editing.name}` : 'Create a new business account on Slotify'}
+          onClose={closeModal}
         />
         <form onSubmit={handleSubmit}>
           <ModalBody>
@@ -149,18 +185,28 @@ export default function Tenants() {
               </div>
             </ModalSection>
 
-            <ModalSection label="Login Credentials">
-              <div className="grid grid-cols-2 gap-3">
+            {editing ? (
+              <ModalSection label="Login">
                 <div className="form-group">
-                  <label>Email <span className="text-rose-400">*</span></label>
-                  <input name="email" type="email" value={form.email} onChange={handleChange} placeholder="tenant@email.com" required />
+                  <label>Email</label>
+                  <input value={form.email} disabled />
                 </div>
-                <div className="form-group">
-                  <label>Password <span className="text-rose-400">*</span></label>
-                  <input name="password" type="password" value={form.password} onChange={handleChange} placeholder="Min 6 characters" required minLength={6} />
+                <p className="text-xs text-slate-400 mt-2">Login email and password can't be changed here.</p>
+              </ModalSection>
+            ) : (
+              <ModalSection label="Login Credentials">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="form-group">
+                    <label>Email <span className="text-rose-400">*</span></label>
+                    <input name="email" type="email" value={form.email} onChange={handleChange} placeholder="tenant@email.com" required />
+                  </div>
+                  <div className="form-group">
+                    <label>Password <span className="text-rose-400">*</span></label>
+                    <input name="password" type="password" value={form.password} onChange={handleChange} placeholder="Min 6 characters" required minLength={6} />
+                  </div>
                 </div>
-              </div>
-            </ModalSection>
+              </ModalSection>
+            )}
 
             <ModalSection label="Contact Info" optional>
               <div className="grid grid-cols-2 gap-3">
@@ -177,14 +223,14 @@ export default function Tenants() {
           </ModalBody>
 
           <ModalFooter>
-            <button type="button" className="btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
+            <button type="button" className="btn-secondary" onClick={closeModal}>Cancel</button>
             <button type="submit" className="btn-primary" disabled={saving}>
               {saving ? (
                 <span className="flex items-center gap-2">
                   <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Enrolling...
+                  {editing ? 'Saving...' : 'Enrolling...'}
                 </span>
-              ) : 'Enroll Tenant'}
+              ) : editing ? 'Save Changes' : 'Enroll Tenant'}
             </button>
           </ModalFooter>
         </form>

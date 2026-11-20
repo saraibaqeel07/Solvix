@@ -65,10 +65,14 @@ export function exportPDF({ title, subtitle, columns, rows, summary = [], totals
   .foot{margin-top:16px;font-size:10px;color:#94a3b8}
   @media print{body{margin:12mm} .tile,th,tfoot td{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 </style></head><body>
-<h1>${escHtml(title)}</h1><div class="sub">${escHtml(subtitle || '')}</div>
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:4px">
+  <svg width="40" height="40" viewBox="0 0 64 64"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#b3a4f6"/><stop offset="1" stop-color="#f6a3b9"/></linearGradient></defs><rect width="64" height="64" rx="18" fill="url(#lg)"/><rect x="11" y="11" width="18" height="18" rx="5.5" fill="#fff" fill-opacity=".5"/><rect x="35" y="11" width="18" height="18" rx="5.5" fill="#fff" fill-opacity=".5"/><rect x="11" y="35" width="18" height="18" rx="5.5" fill="#fff" fill-opacity=".5"/><rect x="35" y="35" width="18" height="18" rx="5.5" fill="#fff"/><path d="M39.6 44.4l3.2 3.2 6.2-6.6" fill="none" stroke="#52b78b" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <h1>${escHtml(title)}</h1>
+</div>
+<div class="sub">${escHtml(subtitle || '')}</div>
 ${tiles ? `<div class="tiles">${tiles}</div>` : ''}
 <table><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${columns.length}">No records</td></tr>`}</tbody>${foot}</table>
-<div class="foot">Generated ${escHtml(new Date().toLocaleString())} · Solvix · ${rows.length} record${rows.length === 1 ? '' : 's'}</div>
+<div class="foot">Generated ${escHtml(new Date().toLocaleString())} · Slotify · ${rows.length} record${rows.length === 1 ? '' : 's'}</div>
 <script>window.onload=function(){setTimeout(function(){window.print()},250)}</script>
 </body></html>`);
   win.document.close();
