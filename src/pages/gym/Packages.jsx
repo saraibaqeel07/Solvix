@@ -25,6 +25,22 @@ const PRESETS = [
   { label: '1 Year',   durationValue: 1,  durationUnit: 'years' },
 ];
 
+// Ready-made tiers a gym can add in one click (prices are a starting point — editable).
+const STARTER_PACKAGES = [
+  {
+    name: 'Basic', icon: '🌱', price: 3000, durationValue: 1, durationUnit: 'months', admissionFee: 1000,
+    description: 'Gym floor access · weights & cardio', tone: 'mint',
+  },
+  {
+    name: 'Standard', icon: '⭐', price: 8000, durationValue: 3, durationUnit: 'months', admissionFee: 1000,
+    description: 'Gym + group classes · saves vs. monthly', tone: 'lavender',
+  },
+  {
+    name: 'Premium', icon: '👑', price: 30000, durationValue: 1, durationUnit: 'years', admissionFee: 0,
+    description: 'Full year · all facilities · admission fee waived', tone: 'peach',
+  },
+];
+
 const EMPTY = {
   name: '', price: '', durationValue: 1, durationUnit: 'months',
   admissionFee: '', description: '', tone: 'lavender', active: true,
@@ -95,6 +111,31 @@ export default function Packages() {
     }
   };
 
+  const existingNames = new Set(data.packages.map((p) => p.name.trim().toLowerCase()));
+  const missingStarters = STARTER_PACKAGES.filter((t) => !existingNames.has(t.name.toLowerCase()));
+
+  const starterData = (t) => ({
+    name: t.name, price: t.price, durationValue: t.durationValue, durationUnit: t.durationUnit,
+    admissionFee: t.admissionFee, description: t.description, tone: t.tone, active: true,
+  });
+
+  // Open the form pre-filled so the owner can tweak the price before saving.
+  const customizeStarter = (t) => { setEditId(null); setForm({ ...EMPTY, ...starterData(t) }); setShowModal(true); };
+
+  const addStarters = async (list) => {
+    setSaving(true);
+    try {
+      for (const t of list) await savePackage(uid, null, starterData(t));
+      toast.success(list.length === 1 ? `${list[0].name} package added` : `${list.length} packages added`);
+      refresh();
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to add packages');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const toggleActive = async (p) => {
     try {
       await savePackage(uid, p.id, { active: !p.active });
@@ -135,9 +176,43 @@ export default function Packages() {
               sub={bestSeller && stats[bestSeller.id]?.members ? `${stats[bestSeller.id].members} members` : 'No sign-ups yet'} icon="⭐" tone="peach" />
           </div>
 
+          {missingStarters.length > 0 && (
+            <div className="card mb-6">
+              <div className="card-header">
+                <div>
+                  <p className="card-title">✨ Quick start: Basic · Standard · Premium</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Add ready-made tiers in one click, or customise the price first.</p>
+                </div>
+                {missingStarters.length > 1 && (
+                  <button className="btn-primary btn-sm" disabled={saving} onClick={() => addStarters(missingStarters)}>
+                    {saving ? 'Adding…' : `+ Add all ${missingStarters.length}`}
+                  </button>
+                )}
+              </div>
+              <div className="card-body grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {missingStarters.map((t) => (
+                  <div key={t.name} className={`rounded-2xl ring-1 bg-gradient-to-br p-4 flex flex-col ${TONE_CLASS[t.tone]}`}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">{t.icon}</span>
+                      <p className="font-bold text-base">{t.name}</p>
+                      <span className="ml-auto text-xs font-semibold opacity-80">{durationLabel(t.durationValue, t.durationUnit)}</span>
+                    </div>
+                    <p className="text-2xl font-extrabold mt-3">{fmtPKR(t.price)}</p>
+                    <p className="text-xs opacity-80 mt-0.5">{t.admissionFee ? `+ ${fmtPKR(t.admissionFee)} admission fee` : 'No admission fee'}</p>
+                    <p className="text-xs text-slate-600 mt-2 flex-1">{t.description}</p>
+                    <div className="flex gap-1.5 mt-3">
+                      <button className="btn-secondary btn-sm flex-1" onClick={() => customizeStarter(t)}>Customise</button>
+                      <button className="btn-primary btn-sm flex-1" disabled={saving} onClick={() => addStarters([t])}>+ Add</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {data.packages.length === 0 ? (
             <div className="card">
-              <EmptyState icon="🎁" title="No packages yet" hint="Create your first package, e.g. “Quarterly — PKR 5,000 for 3 months”." />
+              <EmptyState icon="🎁" title="No packages yet" hint="Add the Basic / Standard / Premium tiers above, or create your own package." />
               <div className="flex justify-center pb-10"><button className="btn-primary" onClick={openAdd}>+ Create Package</button></div>
             </div>
           ) : (
